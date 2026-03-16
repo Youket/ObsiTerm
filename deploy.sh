@@ -1,28 +1,45 @@
 #!/bin/bash
 # Build and deploy xTermObsidian plugin
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TARGET_DIR="/Users/fengzheng/知识管理/风筝记/.obsidian/plugins/obsidian-term"
+PLUGIN_DIR_NAME="obsidian-term"
+TARGET_DIR="/Users/fengzheng/知识管理/风筝记/.obsidian/plugins/${PLUGIN_DIR_NAME}"
+RELEASES_ROOT="${SCRIPT_DIR}/releases"
+MACOS_RELEASE_DIR="${RELEASES_ROOT}/macos/${PLUGIN_DIR_NAME}"
+
+copy_plugin_bundle() {
+    local destination_dir="$1"
+
+    mkdir -p "$destination_dir"
+    rm -rf "$destination_dir/resources" "$destination_dir/themes"
+    mkdir -p "$destination_dir/resources" "$destination_dir/themes"
+
+    cp "$SCRIPT_DIR/main.js" "$destination_dir/"
+    cp "$SCRIPT_DIR/manifest.json" "$destination_dir/"
+    cp "$SCRIPT_DIR/styles.css" "$destination_dir/"
+    cp "$SCRIPT_DIR/resources/pty-helper" "$destination_dir/resources/"
+    cp -R "$SCRIPT_DIR/themes/." "$destination_dir/themes/"
+}
 
 echo "🔨 Building plugin..."
 cd "$SCRIPT_DIR"
 npm run build
 
-echo "📁 Creating target directory..."
-mkdir -p "$TARGET_DIR"
-mkdir -p "$TARGET_DIR/resources"
-mkdir -p "$TARGET_DIR/themes"
+echo "📁 Deploying to local Obsidian plugin directory..."
+copy_plugin_bundle "$TARGET_DIR"
 
-echo "📦 Copying files..."
-cp main.js "$TARGET_DIR/"
-cp manifest.json "$TARGET_DIR/"
-cp styles.css "$TARGET_DIR/"
-cp resources/pty-helper "$TARGET_DIR/resources/"
-cp -r themes/* "$TARGET_DIR/themes/"
+echo "📦 Creating macOS release bundle..."
+mkdir -p "$RELEASES_ROOT/macos"
+copy_plugin_bundle "$MACOS_RELEASE_DIR"
+chmod +x "$RELEASES_ROOT/macos/install.sh"
 
 echo "✅ Deployed to: $TARGET_DIR"
+echo "✅ macOS release bundle: $MACOS_RELEASE_DIR"
 echo ""
-echo "📋 Copied files:"
+echo "📋 Local plugin files:"
 ls -la "$TARGET_DIR"
+echo ""
+echo "📋 macOS release files:"
+ls -la "$MACOS_RELEASE_DIR"
