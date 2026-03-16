@@ -25,11 +25,13 @@ export class TerminalView extends ItemView {
     private plugin: XTermTerminalPlugin;
     private outputAnsiBuffer: string = '';
     private clipboardSequence: number = 0;
-
-    // For @ autocomplete - track what user is typing
+    private lastResizeCols: number | null = null;
+    private lastResizeRows: number | null = null;
     private inputBuffer: string = '';
-    private isCapturingAtSearch: boolean = false;
-    private atSearchText: string = '';
+    private foregroundStatusBuffer: string = '';
+    private foregroundCommands: string[] = [];
+    private resizeObserver: ResizeObserver | null = null;
+    private fitFrame: number | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: XTermTerminalPlugin) {
         super(leaf);
@@ -50,9 +52,10 @@ export class TerminalView extends ItemView {
     }
 
     async onOpen(): Promise<void> {
-        const container = this.containerEl.children[1];
+        const container = this.contentEl;
         container.empty();
         container.addClass('xterm-terminal-view');
+        container.style.padding = '0';
 
         // Terminal container - no header, full height
         this.terminalContainer = container.createDiv({ cls: 'xterm-terminal-container' });
@@ -71,9 +74,16 @@ export class TerminalView extends ItemView {
         // Create xterm.js terminal
         this.terminal = new Terminal({
             cursorBlink: true,
+            cursorStyle: 'bar',
+            cursorWidth: 2,
+            cursorInactiveStyle: 'outline',
             fontSize: settings.fontSize,
             fontFamily: settings.fontFamily,
-            theme: this.currentTheme,
+            lineHeight: 1,
+            letterSpacing: 0,
+            customGlyphs: true,
+            allowTransparency: false,
+            theme: this.getVisibleCursorTheme(this.currentTheme),
             allowProposedApi: true,
             scrollback: 10000,
             convertEol: false,  // Let PTY handle line endings
@@ -86,10 +96,17 @@ export class TerminalView extends ItemView {
         // Open terminal in container
         this.terminal.open(this.terminalContainer);
 
+        await this.ensureTerminalFontReady(settings.fontFamily, settings.fontSize);
+
         // Update container background to match terminal
+        this.contentEl.style.backgroundColor = this.currentTheme.background;
         this.terminalContainer.style.backgroundColor = this.currentTheme.background;
 
         this.fitAddon.fit();
+        this.terminal.onResize(({ cols, rows }) => {
+            this.sendResize(cols, rows);
+            this.requestTerminalRefresh();
+        });
 
         // Initialize autocomplete
         this.autocomplete = new AutocompleteManager(
@@ -100,15 +117,7 @@ export class TerminalView extends ItemView {
 
         this.registerPasteHandling();
 
-        // Handle resize
-        this.registerEvent(
-            this.app.workspace.on('resize', () => {
-                setTimeout(() => {
-                    this.fitAddon?.fit();
-                    this.sendResize();
-                }, 300);  // Increased debounce for better performance
-            })
-        );
+        this.setupResizeHandling();
 
         // Start PTY helper
         await this.startPtyHelper();
@@ -126,65 +135,60 @@ export class TerminalView extends ItemView {
     private getPtyHelperPath(): string {
         // @ts-ignore - basePath exists but not in type definitions
         const vaultPath = this.app.vault.adapter.basePath;
-        const pluginsDir = path.join(vaultPath, '.obsidian', 'plugins');
+        const manifestDir = this.plugin.manifest.dir;
+        const pluginDir = manifestDir
+            ? (path.isAbsolute(manifestDir) ? manifestDir : path.join(vaultPath, manifestDir))
+            : path.join(vaultPath, '.obsidian', 'plugins', this.plugin.manifest.id);
 
-        try {
-            // Scan all plugin directories to find one with pty-helper.py
-            const pluginFolders = fs.readdirSync(pluginsDir);
-
-            for (const folder of pluginFolders) {
-                const ptyPath = path.join(pluginsDir, folder, 'resources', 'pty-helper.py');
-                try {
-                    if (fs.existsSync(ptyPath)) {
-                        return ptyPath;
-                    }
-                } catch {
-                    // Continue checking
-                }
-            }
-        } catch {
-            // Ignore directory read errors
-        }
-
-        // Fallback: check development path
-        const devPath = path.join(this.scanner.getVaultPath(), '..', 'xTermObsidian', 'resources', 'pty-helper.py');
-        if (fs.existsSync(devPath)) {
-            return devPath;
-        }
-
-        // Last resort fallback
-        return path.join(pluginsDir, 'obsidian-term', 'resources', 'pty-helper.py');
+        return path.join(pluginDir, 'resources', 'pty-helper');
     }
 
     /**
      * Start the PTY helper process
      */
     private async startPtyHelper(): Promise<void> {
-        const pythonPath = this.findPython();
         const ptyHelperPath = this.getPtyHelperPath();
 
         // Get user's preferred shell
         const userShell = process.env.SHELL || '/bin/zsh';
 
         try {
+            if (!fs.existsSync(ptyHelperPath)) {
+                throw new Error(`PTY helper not found at ${ptyHelperPath}`);
+            }
+
             // Create a FIFO (named pipe) for resize events
             // We'll use process.send or a workaround with stdio
 
-            this.ptyProcess = spawn(pythonPath, [ptyHelperPath, userShell], {
+            this.ptyProcess = spawn(ptyHelperPath, [userShell], {
                 cwd: this.scanner.getVaultPath(),
                 env: {
                     ...process.env,
                     TERM: 'xterm-256color',
                     LANG: process.env.LANG || 'en_US.UTF-8',
+                    XTERM_INITIAL_COLS: String(this.terminal?.cols ?? 0),
+                    XTERM_INITIAL_ROWS: String(this.terminal?.rows ?? 0),
                 },
-                stdio: ['pipe', 'pipe', 'pipe', 'pipe'] // stdin, stdout, stderr, resize fd
+                stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'] // stdin, stdout, stderr, resize fd, status fd
             });
+
+            this.lastResizeCols = this.terminal?.cols ?? null;
+            this.lastResizeRows = this.terminal?.rows ?? null;
 
             // Get fd 3 for resize events
             // @ts-ignore - stdio[3] exists when we specify 4 pipes
             if (this.ptyProcess.stdio && this.ptyProcess.stdio[3]) {
                 // @ts-ignore
                 this.resizePipe = this.ptyProcess.stdio[3] as fs.WriteStream;
+            }
+
+            // @ts-ignore - stdio[4] exists when we specify 5 pipes
+            if (this.ptyProcess.stdio && this.ptyProcess.stdio[4]) {
+                // @ts-ignore
+                const statusPipe = this.ptyProcess.stdio[4] as NodeJS.ReadableStream;
+                statusPipe.on('data', (data: Buffer | string) => {
+                    this.handleForegroundStatusChunk(data.toString());
+                });
             }
 
             // Handle PTY output
@@ -207,58 +211,34 @@ export class TerminalView extends ItemView {
                 this.terminal?.writeln(`\r\n\x1b[90m[Shell exited with code ${code}]\x1b[0m`);
                 this.terminal?.writeln('\x1b[90mPress any key to restart...\x1b[0m');
                 this.ptyProcess = null;
+                this.foregroundCommands = [];
             });
 
             this.ptyProcess.on('error', (err: Error) => {
                 this.terminal?.writeln(`\r\n\x1b[31mError: ${err.message}\x1b[0m`);
-                this.terminal?.writeln('\x1b[33mMake sure Python 3 is installed.\x1b[0m');
+                this.terminal?.writeln('\x1b[33mMake sure the bundled PTY helper is built and deployed.\x1b[0m');
                 this.ptyProcess = null;
+                this.foregroundCommands = [];
             });
 
-            // Send initial terminal size
+            // Sync once after startup in case the terminal size changed during launch.
             setTimeout(() => this.sendResize(), 100);
 
         } catch (error) {
             this.terminal?.writeln(`\x1b[31mFailed to start terminal: ${(error as Error).message}\x1b[0m`);
-            this.terminal?.writeln('\x1b[33mMake sure Python 3 is installed and pty-helper.py exists.\x1b[0m');
+            this.terminal?.writeln('\x1b[33mMake sure the Rust PTY helper is built and deployed.\x1b[0m');
         }
-    }
-
-    /**
-     * Find Python 3 executable
-     */
-    private findPython(): string {
-        // Common Python 3 paths
-        const pythonPaths = [
-            '/usr/bin/python3',
-            '/usr/local/bin/python3',
-            '/opt/homebrew/bin/python3',
-            'python3',
-            'python'
-        ];
-
-        for (const p of pythonPaths) {
-            try {
-                if (p.startsWith('/') && fs.existsSync(p)) {
-                    return p;
-                }
-            } catch {
-                // Continue checking
-            }
-        }
-
-        // Default to python3 and hope it's in PATH
-        return 'python3';
     }
 
     /**
      * Send terminal size to PTY helper via fd 3
      */
-    private sendResize(): void {
-        if (!this.terminal || !this.resizePipe) return;
+    private sendResize(cols = this.terminal?.cols, rows = this.terminal?.rows): void {
+        if (!this.terminal || !this.resizePipe || !cols || !rows) return;
 
-        const cols = this.terminal.cols;
-        const rows = this.terminal.rows;
+        if (this.lastResizeCols === cols && this.lastResizeRows === rows) {
+            return;
+        }
 
         // struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel }
         // Pack as 4 unsigned shorts (8 bytes total)
@@ -270,6 +250,8 @@ export class TerminalView extends ItemView {
 
         try {
             this.resizePipe.write(buffer);
+            this.lastResizeCols = cols;
+            this.lastResizeRows = rows;
         } catch {
             // Ignore resize errors
         }
@@ -326,8 +308,6 @@ export class TerminalView extends ItemView {
         event.stopPropagation();
 
         this.autocomplete?.deactivate();
-        this.isCapturingAtSearch = false;
-        this.atSearchText = '';
         this.inputBuffer = text.includes('\n') || text.includes('\r') ? '' : this.inputBuffer + text;
 
         this.terminal.paste(text);
@@ -346,8 +326,6 @@ export class TerminalView extends ItemView {
             await fs.promises.writeFile(filePath, imageBuffer);
 
             this.autocomplete?.deactivate();
-            this.isCapturingAtSearch = false;
-            this.atSearchText = '';
             this.inputBuffer = '';
 
             const pastedPath = filePath.includes(' ') ? `"${filePath}"` : filePath;
@@ -426,10 +404,6 @@ export class TerminalView extends ItemView {
                 continue;
             }
 
-            if (code === 7) {
-                continue;
-            }
-
             if ((code >= 40 && code <= 47) || (code >= 100 && code <= 107) || code === 49) {
                 continue;
             }
@@ -460,7 +434,6 @@ export class TerminalView extends ItemView {
             return;
         }
 
-        // Handle @ autocomplete
         if (this.autocomplete?.isActive()) {
             // Handle autocomplete navigation keys
             if (data === '\x1b[A') { // Up
@@ -485,29 +458,22 @@ export class TerminalView extends ItemView {
                 // Also send to PTY so it appears in terminal
                 this.writeToPty(data);
 
-                // Track for path replacement
                 if (data === '\x7f' || data === '\b') {
-                    this.atSearchText = this.atSearchText.slice(0, -1);
                     this.inputBuffer = this.inputBuffer.slice(0, -1);
                 } else {
-                    this.atSearchText += data;
                     this.inputBuffer += data;
                 }
                 return;
             } else {
                 // Enter closes autocomplete without selection
-                this.isCapturingAtSearch = false;
-                this.atSearchText = '';
             }
         }
 
-        // Detect @ to trigger autocomplete
-        if (data === '@') {
-            this.isCapturingAtSearch = true;
-            this.atSearchText = '';
+        const trigger = this.getAutocompleteTrigger();
+        if (this.shouldActivateAutocomplete(data, trigger)) {
             this.inputBuffer += data;
             this.writeToPty(data);
-            this.autocomplete?.handleInput(data, this.inputBuffer.length);
+            this.autocomplete?.activate(this.inputBuffer.length);
             return;
         }
 
@@ -539,8 +505,7 @@ export class TerminalView extends ItemView {
     private handleAutocompleteSelect(absolutePath: string, searchText: string): void {
         if (!this.ptyProcess?.stdin) return;
 
-        // Calculate how many characters to delete (@searchText)
-        const deleteCount = searchText.length + 1; // +1 for @
+        const deleteCount = searchText.length + this.getAutocompleteTrigger().length;
 
         // Send backspaces to delete @searchText
         for (let i = 0; i < deleteCount; i++) {
@@ -554,8 +519,6 @@ export class TerminalView extends ItemView {
         this.writeToPty(pathToInsert);
         // Update input buffer
         this.inputBuffer = this.inputBuffer.slice(0, -(deleteCount)) + pathToInsert;
-        this.isCapturingAtSearch = false;
-        this.atSearchText = '';
     }
 
     /**
@@ -565,9 +528,10 @@ export class TerminalView extends ItemView {
         if (!this.terminal) return;
 
         this.currentTheme = theme;
-        this.terminal.options.theme = theme;
+        this.terminal.options.theme = this.getVisibleCursorTheme(theme);
 
         // Update container background
+        this.contentEl.style.backgroundColor = theme.background;
         if (this.terminalContainer) {
             this.terminalContainer.style.backgroundColor = theme.background;
         }
@@ -582,11 +546,9 @@ export class TerminalView extends ItemView {
         this.terminal.options.fontSize = settings.fontSize;
         this.terminal.options.fontFamily = settings.fontFamily;
 
-        // Refit terminal after font changes
-        setTimeout(() => {
-            this.fitAddon?.fit();
-            this.sendResize();
-        }, 50);
+        void this.ensureTerminalFontReady(settings.fontFamily, settings.fontSize).then(() => {
+            this.scheduleFit();
+        });
     }
 
     /**
@@ -594,6 +556,16 @@ export class TerminalView extends ItemView {
      */
     private cleanup(): void {
         this.outputAnsiBuffer = '';
+        this.foregroundStatusBuffer = '';
+        this.foregroundCommands = [];
+        this.contentEl.style.backgroundColor = '';
+        this.contentEl.style.padding = '';
+        this.resizeObserver?.disconnect();
+        this.resizeObserver = null;
+        if (this.fitFrame !== null) {
+            cancelAnimationFrame(this.fitFrame);
+            this.fitFrame = null;
+        }
 
         // Close resize pipe first to stop any pending resize events
         if (this.resizePipe) {
@@ -636,5 +608,160 @@ export class TerminalView extends ItemView {
 
     async onClose(): Promise<void> {
         this.cleanup();
+    }
+
+    private getAutocompleteTrigger(): string {
+        return this.plugin.settings.autocompleteTrigger || '@';
+    }
+
+    private setupResizeHandling(): void {
+        if (!this.terminalContainer) return;
+
+        this.resizeObserver?.disconnect();
+        this.resizeObserver = new ResizeObserver(() => {
+            this.scheduleFit();
+        });
+        this.resizeObserver.observe(this.terminalContainer);
+
+        this.registerEvent(
+            this.app.workspace.on('resize', () => {
+                this.scheduleFit();
+            })
+        );
+    }
+
+    private scheduleFit(): void {
+        if (this.fitFrame !== null) {
+            cancelAnimationFrame(this.fitFrame);
+        }
+
+        this.fitFrame = requestAnimationFrame(() => {
+            this.fitFrame = null;
+            this.fitAddon?.fit();
+            this.requestTerminalRefresh();
+        });
+    }
+
+    private async ensureTerminalFontReady(fontFamily: string, fontSize: number): Promise<void> {
+        if (!('fonts' in document)) {
+            return;
+        }
+
+        try {
+            const fontFaceSet = document.fonts;
+            const fontSpec = `${fontSize}px ${fontFamily}`;
+            if (fontFaceSet.check(fontSpec)) {
+                return;
+            }
+
+            await Promise.race([
+                fontFaceSet.load(fontSpec),
+                new Promise((resolve) => window.setTimeout(resolve, 800))
+            ]);
+        } catch {
+            // Ignore font loading failures and fall back to current metrics.
+        }
+    }
+
+    private requestTerminalRefresh(): void {
+        if (!this.terminal || this.terminal.rows <= 0) return;
+        requestAnimationFrame(() => {
+            if (!this.terminal || this.terminal.rows <= 0) return;
+            this.terminal.refresh(0, this.terminal.rows - 1);
+        });
+    }
+
+    private shouldActivateAutocomplete(data: string, trigger: string): boolean {
+        if (!trigger) return false;
+        if (data.length !== 1) return false;
+        if (data.charCodeAt(0) < 32) return false;
+        if (trigger === '@' && this.isAgentCliInForeground()) return false;
+
+        const nextBuffer = this.inputBuffer + data;
+        return nextBuffer.endsWith(trigger);
+    }
+
+    private handleForegroundStatusChunk(chunk: string): void {
+        this.foregroundStatusBuffer += chunk;
+        const lines = this.foregroundStatusBuffer.split('\n');
+        this.foregroundStatusBuffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+            if (!line.startsWith('foreground')) continue;
+            const commands = line
+                .split('\t')
+                .slice(1)
+                .map((command) => command.trim())
+                .filter((command) => command.length > 0);
+            this.foregroundCommands = commands;
+        }
+    }
+
+    private isAgentCliInForeground(): boolean {
+        return this.foregroundCommands.some((command) => this.matchesAgentCli(command));
+    }
+
+    private matchesAgentCli(command: string): boolean {
+        const normalized = command.toLowerCase();
+        return normalized.includes('claude')
+            || normalized.includes('codex')
+            || normalized.includes('gemini');
+    }
+
+    private getVisibleCursorTheme(theme: TerminalTheme): TerminalTheme {
+        const fallbackCursor = this.getHighContrastColor(theme.background);
+        const resolvedCursor = this.isCursorVisible(theme.cursor, theme.background)
+            ? theme.cursor
+            : fallbackCursor;
+        const resolvedCursorAccent = this.isCursorVisible(theme.cursorAccent, resolvedCursor)
+            ? theme.cursorAccent
+            : theme.background;
+
+        return {
+            ...theme,
+            cursor: resolvedCursor,
+            cursorAccent: resolvedCursorAccent
+        };
+    }
+
+    private isCursorVisible(cursorColor: string, backgroundColor: string): boolean {
+        if (!cursorColor || cursorColor === 'transparent') {
+            return false;
+        }
+
+        return this.getColorDistance(cursorColor, backgroundColor) >= 80;
+    }
+
+    private getHighContrastColor(backgroundColor: string): string {
+        const rgb = this.parseHexColor(backgroundColor);
+        if (!rgb) return '#ffffff';
+
+        const luminance = (0.299 * rgb.r) + (0.587 * rgb.g) + (0.114 * rgb.b);
+        return luminance > 186 ? '#111111' : '#f5f5f5';
+    }
+
+    private getColorDistance(colorA: string, colorB: string): number {
+        const rgbA = this.parseHexColor(colorA);
+        const rgbB = this.parseHexColor(colorB);
+        if (!rgbA || !rgbB) return Number.POSITIVE_INFINITY;
+
+        const r = rgbA.r - rgbB.r;
+        const g = rgbA.g - rgbB.g;
+        const b = rgbA.b - rgbB.b;
+        return Math.sqrt((r * r) + (g * g) + (b * b));
+    }
+
+    private parseHexColor(value: string): { r: number; g: number; b: number } | null {
+        const normalized = value.trim();
+        const hex = normalized.startsWith('#') ? normalized.slice(1) : normalized;
+        if (!/^[0-9a-f]{6}$/i.test(hex)) {
+            return null;
+        }
+
+        return {
+            r: Number.parseInt(hex.slice(0, 2), 16),
+            g: Number.parseInt(hex.slice(2, 4), 16),
+            b: Number.parseInt(hex.slice(4, 6), 16),
+        };
     }
 }

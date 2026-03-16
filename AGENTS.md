@@ -14,7 +14,7 @@
 - `src/TerminalView.ts`
 - `src/AutocompleteManager.ts`
 - `src/VaultScanner.ts`
-- `resources/pty-helper.py`
+- `native/pty-helper/src/main.rs`
 
 ## Rules
 
@@ -24,7 +24,7 @@
 - Do not edit generated `main.js` directly. Change source and rebuild.
 - Prefer small, local fixes over large refactors.
 - Do not assume path handling is ASCII-only.
-- Verify shell behavior in code before trusting README notes about `node-pty`.
+- Verify shell behavior in code before trusting README text.
 
 ## Key Ownership
 
@@ -32,20 +32,21 @@
 - `src/TerminalView.ts`: xterm UI, shell process, resize, input routing
 - `src/AutocompleteManager.ts`: `@` autocomplete popup and keyboard handling
 - `src/VaultScanner.ts`: vault scan, cache, path filtering
-- `resources/pty-helper.py`: shell integration helper
+- `native/pty-helper/src/main.rs`: Rust PTY helper
 
 ## Build
 
 - Install: `npm install`
 - Dev: `npm run dev`
 - Preferred local deploy: `./deploy.sh`
+- After code changes, default to running `./deploy.sh`
 - `./deploy.sh` runs `npm run build` and copies plugin files into the local Obsidian plugin directory
 
 ## Validation
 
 For code changes:
 
-1. Run `./deploy.sh` unless the task only needs a compile check
+1. Run `./deploy.sh`
 2. Report changed files and impact
 
 If terminal behavior changes, also verify:

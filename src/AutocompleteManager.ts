@@ -36,11 +36,6 @@ export class AutocompleteManager {
      * 处理输入字符
      */
     handleInput(char: string, cursorPosition: number): boolean {
-        if (char === '@' && !this.state.isActive) {
-            this.activate(cursorPosition);
-            return true;
-        }
-
         if (this.state.isActive) {
             // 只有回车和换行才关闭自动补全，空格允许继续搜索
             if (char === '\r' || char === '\n') {
@@ -67,6 +62,17 @@ export class AutocompleteManager {
         return false;
     }
 
+    activate(position: number): void {
+        this.state = {
+            isActive: true,
+            searchText: '',
+            startPosition: position,
+            selectedIndex: 0,
+            items: this.scanner.filter('')
+        };
+        this.showPopup();
+    }
+
     /**
      * 处理特殊按键
      */
@@ -90,20 +96,6 @@ export class AutocompleteManager {
         }
 
         return false;
-    }
-
-    /**
-     * 激活自动补全
-     */
-    private activate(position: number): void {
-        this.state = {
-            isActive: true,
-            searchText: '',
-            startPosition: position,
-            selectedIndex: 0,
-            items: this.scanner.filter('')
-        };
-        this.showPopup();
     }
 
     /**

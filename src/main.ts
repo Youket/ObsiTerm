@@ -1,6 +1,7 @@
 import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { TerminalView, TERMINAL_VIEW_TYPE } from './TerminalView';
 import { TerminalSettingTab, TerminalSettings, DEFAULT_SETTINGS } from './settings';
+import type { InstalledFontFamily } from './settings';
 import {
     GhosttyThemeDefinition,
     TerminalTheme,
@@ -13,6 +14,8 @@ import * as path from 'path';
 export default class XTermTerminalPlugin extends Plugin {
     settings: TerminalSettings = DEFAULT_SETTINGS;
     private bundledThemes: GhosttyThemeDefinition[] = [];
+    private installedFonts: InstalledFontFamily[] = [];
+    private installedFontsPromise: Promise<InstalledFontFamily[]> | null = null;
 
     async onload(): Promise<void> {
         console.log('Loading xTerm Terminal plugin');
@@ -81,7 +84,10 @@ export default class XTermTerminalPlugin extends Plugin {
         this.settings = {
             themeName: typeof rawData.themeName === 'string' ? rawData.themeName : DEFAULT_SETTINGS.themeName,
             fontSize: typeof rawData.fontSize === 'number' ? rawData.fontSize : DEFAULT_SETTINGS.fontSize,
-            fontFamily: typeof rawData.fontFamily === 'string' ? rawData.fontFamily : DEFAULT_SETTINGS.fontFamily
+            fontFamily: typeof rawData.fontFamily === 'string' ? rawData.fontFamily : DEFAULT_SETTINGS.fontFamily,
+            autocompleteTrigger: typeof rawData.autocompleteTrigger === 'string' && rawData.autocompleteTrigger.trim().length > 0
+                ? rawData.autocompleteTrigger.trim()
+                : DEFAULT_SETTINGS.autocompleteTrigger
         };
 
         this.bundledThemes = await loadBundledGhosttyThemes(this.getThemeDirectoryPath());
@@ -135,6 +141,75 @@ export default class XTermTerminalPlugin extends Plugin {
             : path.join(vaultPath, '.obsidian', 'plugins', this.manifest.id);
 
         return path.join(pluginDir, 'themes');
+    }
+
+    async getInstalledFonts(forceRefresh = false): Promise<InstalledFontFamily[]> {
+        if (!forceRefresh && this.installedFonts.length > 0) {
+            return this.installedFonts;
+        }
+
+        if (!forceRefresh && this.installedFontsPromise) {
+            return this.installedFontsPromise;
+        }
+
+        this.installedFontsPromise = this.loadInstalledFonts();
+        const fonts = await this.installedFontsPromise;
+        this.installedFonts = fonts;
+        this.installedFontsPromise = null;
+        return fonts;
+    }
+
+    private async loadInstalledFonts(): Promise<InstalledFontFamily[]> {
+        const queryLocalFonts = (window as Window & {
+            queryLocalFonts?: () => Promise<Array<{
+                family?: string | null;
+                fullName?: string | null;
+                postscriptName?: string | null;
+            }>>;
+        }).queryLocalFonts;
+
+        if (typeof queryLocalFonts !== 'function') {
+            return this.withCurrentFont([]);
+        }
+
+        try {
+            const fonts = await queryLocalFonts();
+            const fontFamilies = new Map<string, Set<string>>();
+
+            for (const font of fonts) {
+                const family = font.family?.trim();
+                if (!family) continue;
+
+                const aliases = fontFamilies.get(family) ?? new Set<string>();
+                const fullName = font.fullName?.trim();
+                const postscriptName = font.postscriptName?.trim();
+
+                if (fullName && fullName !== family) aliases.add(fullName);
+                if (postscriptName && postscriptName !== family && postscriptName !== fullName) aliases.add(postscriptName);
+
+                fontFamilies.set(family, aliases);
+            }
+
+            return this.withCurrentFont(
+                Array.from(fontFamilies.entries())
+                    .map(([family, aliases]) => ({
+                        family,
+                        aliases: Array.from(aliases).sort((a, b) => a.localeCompare(b))
+                    }))
+                    .sort((a, b) => a.family.localeCompare(b.family))
+            );
+        } catch (error) {
+            console.error('Failed to query local fonts', error);
+            return this.withCurrentFont([]);
+        }
+    }
+
+    private withCurrentFont(fonts: InstalledFontFamily[]): InstalledFontFamily[] {
+        const currentFont = this.settings.fontFamily.trim();
+        if (!currentFont) return fonts;
+        return fonts.some((font) => font.family === currentFont)
+            ? fonts
+            : [{ family: currentFont, aliases: [] }, ...fonts];
     }
 
     /**

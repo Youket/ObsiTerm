@@ -23,7 +23,7 @@
 	-ms-user-select: none;
 	-webkit-user-select: none;
 	height: 100%;
-	padding: 8px;
+	padding: 2px 3px 3px;
 }
 
 .xterm.focus,
@@ -248,4 +248,40 @@
 	padding: 2px 6px;
 	background: var(--background-secondary);
 	border-radius: 4px;
+}
+
+.xterm-font-family-value {
+	margin-top: 8px;
+	padding: 8px 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	font-size: 13px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.xterm-font-suggestion-title {
+	font-size: 14px;
+	color: var(--text-normal);
+}
+
+.xterm-font-current-badge {
+	display: inline-block;
+	margin-left: 6px;
+	padding: 1px 6px;
+	border-radius: 999px;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 11px;
+	line-height: 1.4;
+	vertical-align: middle;
+}
+
+.xterm-font-suggestion-meta {
+	margin-top: 4px;
+	font-size: 12px;
+	color: var(--text-muted);
 }

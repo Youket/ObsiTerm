@@ -1,8 +1,10 @@
 # Dependencies
 node_modules/
+native/pty-helper/target/
 
 # Build output
 main.js
+resources/pty-helper
 
 # macOS
 .DS_Store

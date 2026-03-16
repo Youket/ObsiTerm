@@ -1,17 +1,24 @@
-import { App, PluginSettingTab, Setting, getLanguage } from 'obsidian';
+import { App, FuzzyMatch, FuzzySuggestModal, PluginSettingTab, Setting, getLanguage } from 'obsidian';
 import { getThemeByName } from './themes';
 import type XTermTerminalPlugin from './main';
+
+export interface InstalledFontFamily {
+    family: string;
+    aliases: string[];
+}
 
 export interface TerminalSettings {
     themeName: string;
     fontSize: number;
     fontFamily: string;
+    autocompleteTrigger: string;
 }
 
 export const DEFAULT_SETTINGS: TerminalSettings = {
     themeName: '',
     fontSize: 14,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace'
+    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    autocompleteTrigger: '@'
 };
 
 export class TerminalSettingTab extends PluginSettingTab {
@@ -126,18 +133,68 @@ export class TerminalSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName(this.t('fontFamily'))
-            .setDesc(this.t('fontFamilyDesc'))
+            .setName(this.t('autocompleteTrigger'))
+            .setDesc(this.t('autocompleteTriggerDesc'))
             .addText((text) => {
                 text
-                    .setValue(this.plugin.settings.fontFamily)
+                    .setPlaceholder(DEFAULT_SETTINGS.autocompleteTrigger)
+                    .setValue(this.plugin.settings.autocompleteTrigger)
                     .onChange(async (value) => {
-                        this.plugin.settings.fontFamily = value;
+                        const normalized = this.normalizeAutocompleteTrigger(value);
+                        if (normalized === this.plugin.settings.autocompleteTrigger) return;
+                        this.plugin.settings.autocompleteTrigger = normalized;
                         await this.plugin.saveSettings();
-                        this.plugin.applySettingsToAllTerminals();
-                        this.updatePreview();
                     });
             });
+
+        const fontSetting = new Setting(containerEl)
+            .setName(this.t('fontFamily'))
+            .setDesc(this.t('fontFamilyDesc'))
+            .addButton((button) => {
+                button
+                    .setButtonText(this.t('chooseFont'))
+                    .onClick(async () => {
+                        const fonts = await this.plugin.getInstalledFonts();
+                        new FontFamilySuggestModal(this.app, fonts, this.plugin.settings.fontFamily, {
+                            isChinese: this.isChinese,
+                            onChoose: async (fontFamily) => {
+                                this.plugin.settings.fontFamily = fontFamily;
+                                await this.plugin.saveSettings();
+                                this.plugin.applySettingsToAllTerminals();
+                                this.updatePreview();
+                                this.display();
+                            }
+                        }).open();
+                    });
+            })
+            .addExtraButton((button) => {
+                button
+                    .setIcon('refresh-cw')
+                    .setTooltip(this.t('reloadFonts'))
+                    .onClick(async () => {
+                        await this.renderFontFamilyControl(fontSetting, true);
+                    });
+            });
+
+        void this.renderFontFamilyControl(fontSetting, false);
+    }
+
+    private async renderFontFamilyControl(setting: Setting, forceRefresh: boolean): Promise<void> {
+        setting.infoEl.querySelector('.xterm-font-family-value')?.remove();
+        setting.infoEl.querySelector('.xterm-font-status')?.remove();
+
+        const currentFontEl = setting.infoEl.createDiv({ cls: 'xterm-font-family-value' });
+        currentFontEl.setText(this.plugin.settings.fontFamily);
+        currentFontEl.title = this.plugin.settings.fontFamily;
+        currentFontEl.style.fontFamily = this.plugin.settings.fontFamily;
+
+        const statusEl = setting.infoEl.createDiv({ cls: 'setting-item-description xterm-font-status' });
+        statusEl.setText(this.t('loadingFonts'));
+
+        const fonts = await this.plugin.getInstalledFonts(forceRefresh);
+        if (!setting.settingEl.isConnected) return;
+
+        statusEl.setText(this.t('fontFamilyLoaded').replace('{count}', String(fonts.length)));
     }
 
     private updatePreview(): void {
@@ -185,6 +242,11 @@ export class TerminalSettingTab extends PluginSettingTab {
     private t(key: TranslationKey): string {
         return this.isChinese ? ZH[key] : EN[key];
     }
+
+    private normalizeAutocompleteTrigger(value: string): string {
+        const trimmed = value.trim();
+        return trimmed.length > 0 ? trimmed : DEFAULT_SETTINGS.autocompleteTrigger;
+    }
 }
 
 type TranslationKey =
@@ -200,8 +262,19 @@ type TranslationKey =
     | 'themeInfo'
     | 'fontSize'
     | 'fontSizeDesc'
+    | 'autocompleteTrigger'
+    | 'autocompleteTriggerDesc'
     | 'fontFamily'
-    | 'fontFamilyDesc';
+    | 'fontFamilyDesc'
+    | 'loadingFonts'
+    | 'fontFamilyLoaded'
+    | 'reloadFonts'
+    | 'chooseFont'
+    | 'fontPickerPlaceholder'
+    | 'fontPickerInstructions'
+    | 'fontPickerNoMatch'
+    | 'currentFont'
+    | 'typeToFilter';
 
 const EN: Record<TranslationKey, string> = {
     terminalSettings: 'Terminal Settings',
@@ -216,8 +289,19 @@ const EN: Record<TranslationKey, string> = {
     themeInfo: 'Edit files in the theme directory and click reload to refresh the list.',
     fontSize: 'Font Size',
     fontSizeDesc: 'Terminal font size in pixels',
+    autocompleteTrigger: 'Vault Path Trigger',
+    autocompleteTriggerDesc: 'Trigger bundled vault path autocomplete. When Claude Code, Codex CLI, or Gemini CLI is in the foreground, single @ is passed through to the agent.',
     fontFamily: 'Font Family',
-    fontFamilyDesc: 'Terminal font family'
+    fontFamilyDesc: 'Pick a local installed font from a searchable modal.',
+    loadingFonts: 'Loading installed fonts...',
+    fontFamilyLoaded: '{count} local font families available',
+    reloadFonts: 'Reload installed fonts',
+    chooseFont: 'Choose',
+    fontPickerPlaceholder: 'Search local fonts',
+    fontPickerInstructions: 'Apply selected font',
+    fontPickerNoMatch: 'No matching fonts found',
+    currentFont: 'Current',
+    typeToFilter: 'Type'
 };
 
 const ZH: Record<TranslationKey, string> = {
@@ -233,6 +317,84 @@ const ZH: Record<TranslationKey, string> = {
     themeInfo: '修改主题目录中的文件后，点击刷新按钮即可重新加载列表。',
     fontSize: '字体大小',
     fontSizeDesc: '终端字体大小（像素）',
+    autocompleteTrigger: '路径补全触发符',
+    autocompleteTriggerDesc: '触发插件内置 vault 路径补全。当 Claude Code、Codex CLI、Gemini CLI 处于前台时，单个 @ 会让给这些 Agent 自己处理。',
     fontFamily: '字体族',
-    fontFamilyDesc: '终端字体族'
+    fontFamilyDesc: '从可搜索的弹窗中选择本机已安装字体。',
+    loadingFonts: '正在加载本机字体...',
+    fontFamilyLoaded: '可用字体族：{count}',
+    reloadFonts: '重新加载本机字体',
+    chooseFont: '选择',
+    fontPickerPlaceholder: '搜索本机字体',
+    fontPickerInstructions: '应用当前选中字体',
+    fontPickerNoMatch: '没有匹配的字体',
+    currentFont: '当前',
+    typeToFilter: '输入'
 };
+
+class FontFamilySuggestModal extends FuzzySuggestModal<string> {
+    constructor(
+        app: App,
+        private readonly fonts: InstalledFontFamily[],
+        private readonly currentFont: string,
+        options: {
+            isChinese: boolean;
+            onChoose: (fontFamily: string) => Promise<void> | void;
+        }
+    ) {
+        super(app);
+        this.isChinese = options.isChinese;
+        this.onChooseCallback = options.onChoose;
+
+        this.setPlaceholder(this.t('fontPickerPlaceholder'));
+        this.setInstructions([
+            { command: this.t('typeToFilter'), purpose: this.t('fontPickerPlaceholder') },
+            { command: '↑↓', purpose: this.t('fontPickerInstructions') },
+            { command: 'Enter', purpose: this.t('chooseFont') }
+        ]);
+    }
+
+    private readonly isChinese: boolean;
+    private readonly onChooseCallback: (fontFamily: string) => Promise<void> | void;
+
+    getItems(): InstalledFontFamily[] {
+        return this.fonts;
+    }
+
+    getItemText(font: InstalledFontFamily): string {
+        return [font.family, ...font.aliases].join(' ');
+    }
+
+    renderSuggestion(match: FuzzyMatch<InstalledFontFamily>, el: HTMLElement): void {
+        const font = match.item;
+        const titleEl = el.createDiv({ cls: 'xterm-font-suggestion-title', text: font.family });
+        titleEl.style.fontFamily = font.family;
+
+        const metaEl = el.createDiv({
+            cls: 'xterm-font-suggestion-meta',
+            text: font.aliases.length > 0 ? font.aliases.join(' / ') : this.t('currentFont')
+        });
+        metaEl.style.fontFamily = font.family;
+
+        if (font.family === this.currentFont) {
+            el.addClass('is-current');
+            const badgeEl = el.createSpan({ cls: 'xterm-font-current-badge', text: this.t('currentFont') });
+            titleEl.appendChild(document.createTextNode(' '));
+            titleEl.appendChild(badgeEl);
+        }
+    }
+
+    onNoSuggestion(): void {
+        this.emptyState.setText(this.t('fontPickerNoMatch'));
+    }
+
+    onChooseSuggestion(match: FuzzyMatch<InstalledFontFamily>): void {
+        void this.onChooseCallback(match.item.family);
+    }
+
+    private t(
+        key: 'fontPickerPlaceholder' | 'fontPickerInstructions' | 'fontPickerNoMatch' | 'chooseFont' | 'currentFont' | 'typeToFilter'
+    ): string {
+        return this.isChinese ? ZH[key] : EN[key];
+    }
+}

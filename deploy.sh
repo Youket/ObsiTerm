@@ -19,7 +19,7 @@ echo "📦 Copying files..."
 cp main.js "$TARGET_DIR/"
 cp manifest.json "$TARGET_DIR/"
 cp styles.css "$TARGET_DIR/"
-cp -r resources/* "$TARGET_DIR/resources/"
+cp resources/pty-helper "$TARGET_DIR/resources/"
 cp -r themes/* "$TARGET_DIR/themes/"
 
 echo "✅ Deployed to: $TARGET_DIR"
