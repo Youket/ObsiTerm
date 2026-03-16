@@ -15,18 +15,6 @@ PLUGIN_DIR_NAME="obsidian-term"
 PLUGIN_BUNDLE_DIR="${SCRIPT_DIR}/${PLUGIN_DIR_NAME}"
 
 current_user_home() {
-    local console_user=""
-    local user_home=""
-
-    console_user="$(stat -f '%Su' /dev/console 2>/dev/null || true)"
-    if [ -n "$console_user" ] && [ "$console_user" != "root" ]; then
-        user_home="$(dscl . -read "/Users/${console_user}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
-        if [ -n "$user_home" ] && [ -d "$user_home" ]; then
-            printf '%s\n' "$user_home"
-            return 0
-        fi
-    fi
-
     printf '%s\n' "$HOME"
 }
 
