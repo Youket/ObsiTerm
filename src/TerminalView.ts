@@ -70,6 +70,7 @@ export class TerminalView extends ItemView {
         // Get theme from plugin settings
         this.currentTheme = this.plugin.getCurrentTheme();
         const settings = this.plugin.settings;
+        const typography = this.getTerminalTypography(settings.fontFamily, settings.fontSize);
 
         // Create xterm.js terminal
         this.terminal = new Terminal({
@@ -79,10 +80,13 @@ export class TerminalView extends ItemView {
             cursorInactiveStyle: 'outline',
             fontSize: settings.fontSize,
             fontFamily: settings.fontFamily,
-            lineHeight: 1,
-            letterSpacing: 0,
+            fontWeight: typography.fontWeight,
+            fontWeightBold: typography.fontWeightBold,
+            lineHeight: typography.lineHeight,
+            letterSpacing: typography.letterSpacing,
             customGlyphs: true,
             allowTransparency: false,
+            minimumContrastRatio: 4.5,
             theme: this.getVisibleCursorTheme(this.currentTheme),
             allowProposedApi: true,
             scrollback: 10000,
@@ -149,8 +153,8 @@ export class TerminalView extends ItemView {
     private async startPtyHelper(): Promise<void> {
         const ptyHelperPath = this.getPtyHelperPath();
 
-        // Get user's preferred shell
-        const userShell = process.env.SHELL || '/bin/zsh';
+        // GUI apps can inherit a stale SHELL env; prefer the account's actual login shell.
+        const userShell = os.userInfo().shell || process.env.SHELL || '/bin/bash';
 
         try {
             if (!fs.existsSync(ptyHelperPath)) {
@@ -543,8 +547,13 @@ export class TerminalView extends ItemView {
     public applySettings(settings: TerminalSettings): void {
         if (!this.terminal) return;
 
+        const typography = this.getTerminalTypography(settings.fontFamily, settings.fontSize);
         this.terminal.options.fontSize = settings.fontSize;
         this.terminal.options.fontFamily = settings.fontFamily;
+        this.terminal.options.fontWeight = typography.fontWeight;
+        this.terminal.options.fontWeightBold = typography.fontWeightBold;
+        this.terminal.options.lineHeight = typography.lineHeight;
+        this.terminal.options.letterSpacing = typography.letterSpacing;
 
         void this.ensureTerminalFontReady(settings.fontFamily, settings.fontSize).then(() => {
             this.scheduleFit();
@@ -669,6 +678,33 @@ export class TerminalView extends ItemView {
             if (!this.terminal || this.terminal.rows <= 0) return;
             this.terminal.refresh(0, this.terminal.rows - 1);
         });
+    }
+
+    private getTerminalTypography(fontFamily: string, fontSize: number): {
+        fontWeight: '400';
+        fontWeightBold: '500' | '600';
+        lineHeight: number;
+        letterSpacing: -1 | 0;
+    } {
+        const normalized = fontFamily.toLowerCase();
+        const compactFonts = [
+            'jetbrainsmono',
+            'jetbrains mono',
+            'nerd font',
+            'cascadia',
+            'fira code',
+            'monaspace',
+            'iosevka'
+        ];
+        const shouldTightenSpacing = compactFonts.some((fontName) => normalized.includes(fontName));
+        const shouldUseCompactTracking = shouldTightenSpacing && fontSize >= 15;
+
+        return {
+            fontWeight: '400',
+            fontWeightBold: shouldTightenSpacing ? '500' : '600',
+            lineHeight: shouldTightenSpacing ? 1.06 : 1.04,
+            letterSpacing: shouldUseCompactTracking ? -1 : 0
+        };
     }
 
     private shouldActivateAutocomplete(data: string, trigger: string): boolean {
