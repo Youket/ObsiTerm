@@ -1,49 +1,114 @@
-# xTerm Terminal
+<div align="center">
+  <h1>ObsiTerm</h1>
+  <p><em>A terminal plugin for Obsidian, making it easy to use Claude Code, Codex, Gemini CLI, and other command-line tools directly inside Obsidian.</em></p>
+  <p><a href="./README-ZH.md">简体中文</a></p>
+  <p>
+    <img alt="version" src="https://img.shields.io/badge/version-v1.0.0-1677ff?style=flat-square">
+    <img alt="license" src="https://img.shields.io/badge/license-MIT-1677ff?style=flat-square">
+    <img alt="platform" src="https://img.shields.io/badge/obsidian-desktop%20only-6f42c1?style=flat-square">
+    <a href="https://github.com/huzhicheng"><img alt="follow" src="https://img.shields.io/badge/follow-huzhicheng-f97316?style=flat-square"></a>
+  </p>
+  <p>
+    <img alt="ObsiTerm Preview" src="./assets/light-theme.png">
+  </p>
+</div>
 
-## 使用说明
+## Overview
 
-- 在 Obsidian 右侧边栏打开终端
-- 支持 `@` 自动补全当前 vault 中的文件和文件夹绝对路径
-- 支持切换插件内置的 Ghostty 主题
+`ObsiTerm` opens a real terminal in the right sidebar of Obsidian Desktop. You can use it like any other terminal, including running Claude Code, Codex, Gemini CLI, and other command-line workflows.
 
-打开方式：
+## Features
 
-- 点击左侧边栏终端图标
-- 或在命令面板中执行 `Open Terminal`
+- A terminal integrated into Obsidian, so you can use Claude Code, Codex, Gemini CLI, and other CLI tools directly inside Obsidian with real-time interaction.
+- Fully compatible with Ghostty terminal themes. You can copy Ghostty theme files directly into the `themes` directory, open it from the settings page, and switch themes from the plugin settings.
+- Comes with 9 built-in themes
 
-`@` 自动补全：
+<table padding="0">
+  <tr>
+    <td align="center"><b>Light Theme</b></td>
+    <td align="center"><b>Dark Theme</b></td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="assets/light-theme.png" alt="Light Theme" width="400">
+    </td>
+    <td align="center">
+      <img src="assets/dark-theme.png" alt="Dark Theme" width="400">
+    </td>
+  </tr>
+</table>
 
-- 输入 `@`
-- 继续输入关键词过滤文件或文件夹
-- 用 `↑` / `↓` 选择
-- 用 `Tab` 或 `Enter` 确认
-- 用 `Esc` 取消
 
-示例：
+- Supports `@` file search without interfering with native commands in Claude Code, Codex, or Gemini CLI
+- Configurable font, font size, and file-path autocomplete trigger
+- Supports folding large pasted text blocks and pasting images as temporary file paths, similar to Claude Code
 
-```bash
-cat @readme
-```
+## Usage
 
-选择后会自动补全为 vault 内文件的绝对路径。
+### Installation
 
-## 开发说明
+Download the package for your platform from `releases` (currently macOS only).
 
-依赖：
+#### Automatic installation
 
-- Node.js
-- Rust 工具链
+Run the `install.sh` script in the release directory from Terminal. It will automatically find Obsidian vaults on the current machine, list them, and let you select one or more vaults with the space key, then press Enter to install.
 
-常用命令：
+<p>
+    <img alt="Auto Install" src="./assets/install-1.png">
+  </p>
 
-```bash
-npm install
-npm run build
-./deploy.sh
-```
+#### Manual installation
 
-说明：
+Download the archive, extract it, and copy the `ObsiTerm` folder into the `.obsidian/plugins/` directory of your vault.
 
-- `npm run build` 会编译 Rust PTY helper 并构建插件
-- `./deploy.sh` 会将插件部署到本地 Obsidian 插件目录
-- 主题文件位于 `themes/`
+### Enable and configure
+
+In Obsidian Settings, open Community plugins, find `ObsiTerm`, and enable it.
+
+
+<p>
+    <img alt="turn on" src="./assets/on.png">
+  </p>
+
+
+In the settings page, you can configure the theme, font size, font family, autocomplete trigger, and more.
+
+<p>
+    <img alt="setting" src="./assets/settings.png">
+  </p>
+
+### Open terminal
+
+Click the `New Terminal` icon in the left sidebar to open a terminal.
+
+<p>
+    <img alt="new Terminal" src="./assets/new.png">
+  </p>
+
+
+### `@` autocomplete
+
+
+1. Type `@`
+2. Continue typing keywords
+3. Use `↑` / `↓` to select
+4. Press `Tab` or `Enter` to confirm
+5. Press `Esc` to cancel
+
+The selected item is inserted as an absolute path.
+
+## Settings
+
+Available options:
+
+- Theme
+- Reload themes
+- Font size
+- Font family
+- Autocomplete trigger
+
+Theme files are located in `themes/`.
+
+## License
+
+MIT
