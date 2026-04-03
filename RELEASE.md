@@ -1,68 +1,64 @@
 # Release
 
-This repository already builds a publishable macOS bundle into [`releases/macos`](/Volumes/扩展硬盘/obsdian/xTermObsidian/releases/macos). Use the script below to package that directory and publish it to GitHub Releases.
+This repository now uses cross-platform release scripts.
 
-## One-time setup
+## Requirements
 
 1. Install GitHub CLI: `gh`
-2. Log in once:
+2. Authenticate once:
 
 ```bash
 gh auth login
 ```
 
-## Publish
+3. Build the asset on the target platform:
 
-From the repo root:
+- build Windows release assets on Windows
+- build macOS release assets on macOS
+
+## Local Bundle Refresh
+
+```bash
+npm run deploy
+```
+
+This refreshes `releases/<platform>/obsidian-term` for the current platform.
+
+## Publish To GitHub Releases
 
 ```bash
 npm run release:github
 ```
 
-The script will:
+The release script will:
 
-1. Run `./deploy.sh`
-2. Refresh [`releases/macos`](/Volumes/扩展硬盘/obsdian/xTermObsidian/releases/macos)
-3. Create `dist-release/ObsiTerm-macos-v<version>.zip`
+1. Run `npm run deploy` unless `--skip-build` is used
+2. Read the version from `releases/<platform>/obsidian-term/manifest.json`
+3. Create `dist-release/ObsiTerm-<platform>-v<version>.zip`
 4. Create or update GitHub Release `v<version>`
-5. Upload the zip asset
+5. Upload the platform zip asset
 
-## Dry run
+## Dry Run
 
 ```bash
 npm run release:github -- --dry-run
 ```
 
-## Common options
-
-Skip rebuild:
+## Common Options
 
 ```bash
 npm run release:github -- --skip-build
-```
-
-Publish prerelease:
-
-```bash
 npm run release:github -- --prerelease
-```
-
-Override tag or title:
-
-```bash
+npm run release:github -- --platform windows
+npm run release:github -- --platform macos
 npm run release:github -- --tag v1.0.0 --title "ObsiTerm 1.0.0"
-```
-
-Use custom release notes:
-
-```bash
 npm run release:github -- --notes-file ./notes.md
 ```
 
-## Recommended release order
+## Recommended Order
 
-1. Make sure `main` is up to date and clean.
-2. Update version in [`manifest.json`](/Volumes/扩展硬盘/obsdian/xTermObsidian/manifest.json) if needed.
-3. Commit and push `main`.
-4. Run `npm run release:github`.
-5. Open the generated GitHub Release page and confirm the uploaded asset.
+1. Make sure `main` is clean and up to date
+2. Update `manifest.json` if needed
+3. Commit and push
+4. Run `npm run release:github`
+5. Verify the uploaded asset on GitHub
