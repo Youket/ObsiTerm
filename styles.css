@@ -251,6 +251,11 @@
 	color: var(--text-on-accent);
 }
 
+.xterm-autocomplete-item.is-selected .xterm-autocomplete-icon,
+.xterm-autocomplete-item.is-selected .xterm-autocomplete-path {
+	color: inherit;
+}
+
 .xterm-autocomplete-icon {
 	font-size: 16px;
 }
@@ -269,6 +274,12 @@
 	padding: 2px 6px;
 	background: var(--background-secondary);
 	border-radius: 4px;
+}
+
+.xterm-autocomplete-item.is-selected .xterm-autocomplete-type {
+	opacity: 1;
+	background: color-mix(in srgb, var(--text-on-accent) 18%, transparent);
+	color: var(--text-on-accent);
 }
 
 .xterm-font-family-value {
