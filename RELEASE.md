@@ -44,10 +44,26 @@ The release script will:
 npm run release:github -- --dry-run
 ```
 
+`--dry-run` now prints the resolved version, tag, zip path, and notes path without writing any files.
+
+## Package Without Publishing
+
+Use this when `gh` is not installed yet or when you want to upload the release manually:
+
+```bash
+npm run release:github -- --package-only
+```
+
+This creates:
+
+- `dist-release/ObsiTerm-<platform>-v<version>.zip`
+- `dist-release/release-notes-<platform>-v<version>.md`
+
 ## Common Options
 
 ```bash
 npm run release:github -- --skip-build
+npm run release:github -- --package-only
 npm run release:github -- --prerelease
 npm run release:github -- --platform windows
 npm run release:github -- --platform macos

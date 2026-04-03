@@ -12,6 +12,7 @@ const options = {
     title: '',
     notesFile: '',
     skipBuild: false,
+    packageOnly: false,
     prerelease: false,
     dryRun: false,
     platform: mapPlatform(process.platform)
@@ -37,6 +38,9 @@ for (let i = 0; i < args.length; i++) {
             break;
         case '--skip-build':
             options.skipBuild = true;
+            break;
+        case '--package-only':
+            options.packageOnly = true;
             break;
         case '--prerelease':
             options.prerelease = true;
@@ -95,12 +99,9 @@ mkdirSync(distDir, { recursive: true });
 const zipBaseName = `ObsiTerm-${options.platform}-${options.tag}.zip`;
 const zipPath = path.join(distDir, zipBaseName);
 const autoNotesFile = path.join(distDir, `release-notes-${options.platform}-${options.tag}.md`);
-
-rmSync(zipPath, { force: true });
-createArchive(releaseDir, zipPath, getArchiveItems(options.platform));
+const generatedNotes = generateNotes(options);
 
 if (!options.notesFile) {
-    writeFileSync(autoNotesFile, generateNotes(options), 'utf8');
     options.notesFile = autoNotesFile;
 }
 
@@ -112,7 +113,23 @@ if (options.dryRun) {
     console.log(`Title: ${options.title}`);
     console.log(`Zip: ${zipPath}`);
     console.log(`Notes: ${options.notesFile}`);
+    console.log(`Package only: ${options.packageOnly ? 'yes' : 'no'}`);
     console.log(`Prerelease: ${options.prerelease ? 'yes' : 'no'}`);
+    process.exit(0);
+}
+
+mkdirSync(distDir, { recursive: true });
+rmSync(zipPath, { force: true });
+createArchive(releaseDir, zipPath, getArchiveItems(options.platform));
+
+if (options.notesFile === autoNotesFile) {
+    writeFileSync(autoNotesFile, generatedNotes, 'utf8');
+}
+
+if (options.packageOnly) {
+    console.log('Release package created locally.');
+    console.log(`Zip: ${zipPath}`);
+    console.log(`Notes: ${options.notesFile}`);
     process.exit(0);
 }
 
@@ -280,6 +297,7 @@ Options:
   --notes-file <path>  Use a custom release notes file
   --platform <name>    Package releases/<platform>, default current platform
   --skip-build         Skip npm run deploy
+  --package-only       Create zip and notes without publishing to GitHub
   --prerelease         Mark release as prerelease
   --dry-run            Print actions without publishing
   -h, --help           Show help`);
