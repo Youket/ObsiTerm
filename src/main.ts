@@ -87,7 +87,8 @@ export default class XTermTerminalPlugin extends Plugin {
             fontFamily: typeof rawData.fontFamily === 'string' ? rawData.fontFamily : DEFAULT_SETTINGS.fontFamily,
             autocompleteTrigger: typeof rawData.autocompleteTrigger === 'string' && rawData.autocompleteTrigger.trim().length > 0
                 ? rawData.autocompleteTrigger.trim()
-                : DEFAULT_SETTINGS.autocompleteTrigger
+                : DEFAULT_SETTINGS.autocompleteTrigger,
+            shellPath: typeof rawData.shellPath === 'string' ? rawData.shellPath.trim() : DEFAULT_SETTINGS.shellPath
         };
 
         this.bundledThemes = await loadBundledGhosttyThemes(this.getThemeDirectoryPath());

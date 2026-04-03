@@ -32,6 +32,7 @@ export class TerminalView extends ItemView {
     private foregroundCommands: string[] = [];
     private resizeObserver: ResizeObserver | null = null;
     private fitFrame: number | null = null;
+    private shellDisplayName: string = '';
 
     constructor(leaf: WorkspaceLeaf, plugin: XTermTerminalPlugin) {
         super(leaf);
@@ -154,6 +155,7 @@ export class TerminalView extends ItemView {
     private async startPtyHelper(): Promise<void> {
         const ptyHelperPath = this.getPtyHelperPath();
         const userShell = this.getDefaultShell();
+        this.shellDisplayName = userShell;
 
         try {
             if (!fs.existsSync(ptyHelperPath)) {
@@ -177,6 +179,7 @@ export class TerminalView extends ItemView {
 
             this.lastResizeCols = this.terminal?.cols ?? null;
             this.lastResizeRows = this.terminal?.rows ?? null;
+            this.writeLaunchBanner(userShell);
 
             // Get fd 3 for resize events
             // @ts-ignore - stdio[3] exists when we specify 4 pipes
@@ -228,12 +231,15 @@ export class TerminalView extends ItemView {
             setTimeout(() => this.sendResize(), 100);
 
         } catch (error) {
-            this.terminal?.writeln(`\x1b[31mFailed to start terminal: ${(error as Error).message}\x1b[0m`);
-            this.terminal?.writeln('\x1b[33mMake sure the Rust PTY helper is built and deployed.\x1b[0m');
+            this.writeStartupFailure(error as Error, userShell, ptyHelperPath);
         }
     }
 
     private getDefaultShell(): string {
+        if (this.plugin.settings.shellPath.trim().length > 0) {
+            return this.plugin.settings.shellPath.trim();
+        }
+
         if (process.platform === 'win32') {
             const preferredShells = [
                 process.env.OBSITERM_SHELL,
@@ -280,6 +286,21 @@ export class TerminalView extends ItemView {
         }
 
         return false;
+    }
+
+    private writeLaunchBanner(shellPath: string): void {
+        const shellName = path.basename(shellPath);
+        const trigger = this.getAutocompleteTrigger();
+        this.terminal?.writeln(`\x1b[90m[ObsiTerm] shell: ${shellName} | path trigger: ${trigger}\x1b[0m`);
+        this.terminal?.writeln('\x1b[90mUse @ path autocomplete, or paste an image to insert a temp file path.\x1b[0m');
+    }
+
+    private writeStartupFailure(error: Error, shellPath: string, ptyHelperPath: string): void {
+        this.terminal?.writeln(`\x1b[31mFailed to start terminal: ${error.message}\x1b[0m`);
+        this.terminal?.writeln(`\x1b[33mShell: ${shellPath}\x1b[0m`);
+        this.terminal?.writeln(`\x1b[33mHelper: ${ptyHelperPath}\x1b[0m`);
+        this.terminal?.writeln('\x1b[33mCheck the shell setting, rebuild the helper, or redeploy the plugin.\x1b[0m');
+        new Notice(`ObsiTerm failed to start terminal: ${error.message}`, 5000);
     }
 
     /**
