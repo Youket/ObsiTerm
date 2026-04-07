@@ -3,6 +3,7 @@ import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { VaultScanner } from './VaultScanner';
 import { AutocompleteManager } from './AutocompleteManager';
+import type { ObsidianContextSnapshot } from './ObsidianContext';
 import { spawn, ChildProcess } from 'child_process';
 import { TerminalTheme } from './themes';
 import { TerminalSettings } from './settings';
@@ -19,6 +20,10 @@ export class TerminalView extends ItemView {
     private ptyProcess: ChildProcess | null = null;
     private resizePipe: fs.WriteStream | null = null;
     private terminalContainer: HTMLElement | null = null;
+    private statusBarEl: HTMLElement | null = null;
+    private statusHintEl: HTMLElement | null = null;
+    private statusSelectionEl: HTMLElement | null = null;
+    private statusContextEl: HTMLElement | null = null;
     private scanner: VaultScanner;
     private autocomplete: AutocompleteManager | null = null;
     private currentTheme: TerminalTheme | null = null;
@@ -33,6 +38,7 @@ export class TerminalView extends ItemView {
     private resizeObserver: ResizeObserver | null = null;
     private fitFrame: number | null = null;
     private shellDisplayName: string = '';
+    private unsubscribeContext: (() => void) | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: XTermTerminalPlugin) {
         super(leaf);
@@ -58,7 +64,12 @@ export class TerminalView extends ItemView {
         container.addClass('xterm-terminal-view');
         container.style.padding = '0';
 
-        // Terminal container - no header, full height
+        this.statusBarEl = container.createDiv({ cls: 'xterm-terminal-statusbar' });
+        this.statusHintEl = this.statusBarEl.createDiv({ cls: 'xterm-terminal-statusbar-hint' });
+        this.statusSelectionEl = this.statusBarEl.createDiv({ cls: 'xterm-terminal-statusbar-selection' });
+        this.statusContextEl = this.statusBarEl.createDiv({ cls: 'xterm-terminal-statusbar-context' });
+        this.statusHintEl.setText('? for shortcuts');
+        // Terminal container - below host status bar
         this.terminalContainer = container.createDiv({ cls: 'xterm-terminal-container' });
 
         // Initialize terminal
@@ -127,6 +138,7 @@ export class TerminalView extends ItemView {
         this.registerPasteHandling();
 
         this.setupResizeHandling();
+        this.bindContextStatus();
 
         // Start PTY helper
         await this.startPtyHelper();
@@ -400,6 +412,28 @@ export class TerminalView extends ItemView {
         this.terminal.onData((data: string) => {
             this.handleInput(data);
         });
+    }
+
+    public sendTextToTerminal(text: string): void {
+        if (!this.terminal) return;
+        this.terminal.focus();
+        this.autocomplete?.deactivate();
+        this.terminal.paste(text);
+    }
+
+    public sendCurrentSelectionToTerminal(selection: string): void {
+        if (!selection) return;
+        this.sendTextToTerminal(this.formatSelectionPayload(selection));
+    }
+
+    public sendActiveFilePathToTerminal(absolutePath: string): void {
+        if (!absolutePath) return;
+        this.sendTextToTerminal(this.formatActiveFilePayload(absolutePath));
+    }
+
+    public sendContextSummaryToTerminal(summary: string): void {
+        if (!summary) return;
+        this.sendTextToTerminal(this.formatContextSummaryPayload(summary));
     }
 
     /**
@@ -699,6 +733,13 @@ export class TerminalView extends ItemView {
         this.foregroundCommands = [];
         this.contentEl.style.backgroundColor = '';
         this.contentEl.style.padding = '';
+        this.unsubscribeContext?.();
+        this.unsubscribeContext = null;
+        this.statusBarEl?.remove();
+        this.statusBarEl = null;
+        this.statusHintEl = null;
+        this.statusSelectionEl = null;
+        this.statusContextEl = null;
         this.resizeObserver?.disconnect();
         this.resizeObserver = null;
         if (this.fitFrame !== null) {
@@ -860,6 +901,7 @@ export class TerminalView extends ItemView {
                 .map((command) => command.trim())
                 .filter((command) => command.length > 0);
             this.foregroundCommands = commands;
+            this.updateStatusBar(this.plugin.getObsidianContextService()?.getLatestSnapshot() ?? null);
         }
     }
 
@@ -872,6 +914,99 @@ export class TerminalView extends ItemView {
         return normalized.includes('claude')
             || normalized.includes('codex')
             || normalized.includes('gemini');
+    }
+
+    private bindContextStatus(): void {
+        this.unsubscribeContext?.();
+        const contextService = this.plugin.getObsidianContextService();
+        if (!contextService) {
+            return;
+        }
+
+        this.unsubscribeContext = contextService.subscribe((snapshot) => {
+            this.updateStatusBar(snapshot);
+        });
+    }
+
+    private updateStatusBar(snapshot: ObsidianContextSnapshot | null): void {
+        if (!this.statusBarEl || !this.statusHintEl || !this.statusSelectionEl || !this.statusContextEl) {
+            return;
+        }
+
+        const agentCliInForeground = this.isAgentCliInForeground();
+        this.statusBarEl.toggleClass('is-agent-active', agentCliInForeground);
+        this.statusHintEl.setText(agentCliInForeground ? '? for shortcuts' : 'Obsidian context');
+
+        if (!snapshot) {
+            this.statusSelectionEl.setText('No note context');
+            this.statusContextEl.setText('');
+            return;
+        }
+
+        this.statusSelectionEl.setText(
+            snapshot.hasSelection
+                ? `${snapshot.selectedLineCount} line${snapshot.selectedLineCount === 1 ? '' : 's'} selected`
+                : 'No current selection'
+        );
+        this.statusContextEl.setText(snapshot.activeFilePath ?? 'No active note');
+    }
+
+    private formatSelectionPayload(selection: string): string {
+        if (this.isPowerShellShell()) {
+            return `$obsitermSelection = @'\r\n${this.normalizeForPowerShell(selection)}\r\n'@\r\n`;
+        }
+
+        if (this.isPosixShell()) {
+            return `export OBSITERM_SELECTION=$(cat <<'EOF'\n${selection}\nEOF\n)\n`;
+        }
+
+        return `${selection}\n`;
+    }
+
+    private formatActiveFilePayload(absolutePath: string): string {
+        if (this.isPowerShellShell()) {
+            return `$obsitermActiveFile = '${this.escapePowerShellSingleQuoted(absolutePath)}'\r\n`;
+        }
+
+        if (this.isPosixShell()) {
+            return `export OBSITERM_ACTIVE_FILE='${this.escapePosixSingleQuoted(absolutePath)}'\n`;
+        }
+
+        return `${absolutePath.includes(' ') ? `"${absolutePath}"` : absolutePath}\n`;
+    }
+
+    private formatContextSummaryPayload(summary: string): string {
+        if (this.isPowerShellShell()) {
+            return `$obsitermContext = @'\r\n${this.normalizeForPowerShell(summary)}\r\n'@\r\n`;
+        }
+
+        if (this.isPosixShell()) {
+            return `export OBSITERM_CONTEXT=$(cat <<'EOF'\n${summary}\nEOF\n)\n`;
+        }
+
+        return `${summary}\n`;
+    }
+
+    private isPowerShellShell(): boolean {
+        const shellName = path.basename(this.shellDisplayName || '').toLowerCase();
+        return shellName === 'powershell.exe' || shellName === 'pwsh.exe' || shellName === 'powershell' || shellName === 'pwsh';
+    }
+
+    private isPosixShell(): boolean {
+        const shellName = path.basename(this.shellDisplayName || '').toLowerCase();
+        return shellName === 'bash' || shellName === 'zsh' || shellName === 'sh' || shellName === 'fish';
+    }
+
+    private escapePowerShellSingleQuoted(value: string): string {
+        return value.replace(/'/g, "''");
+    }
+
+    private normalizeForPowerShell(value: string): string {
+        return value.replace(/\r?\n/g, '\r\n');
+    }
+
+    private escapePosixSingleQuoted(value: string): string {
+        return value.replace(/'/g, `'\\''`);
     }
 
     private getVisibleCursorTheme(theme: TerminalTheme): TerminalTheme {

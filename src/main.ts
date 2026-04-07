@@ -92,6 +92,37 @@ export default class XTermTerminalPlugin extends Plugin {
                 void this.contextService?.copyCurrentSelection();
             }
         });
+
+        this.addCommand({
+            id: 'send-current-selection-to-terminal',
+            name: 'Send Current Selection To Terminal',
+            callback: () => {
+                const snapshot = this.contextService?.getLatestSelectionSnapshot() ?? this.contextService?.getLatestSnapshot();
+                if (!snapshot?.selection) return;
+                this.getTargetTerminalView()?.sendCurrentSelectionToTerminal(snapshot.selection);
+            }
+        });
+
+        this.addCommand({
+            id: 'send-active-note-path-to-terminal',
+            name: 'Send Active Note Path To Terminal',
+            callback: () => {
+                const snapshot = this.contextService?.getLatestSnapshot();
+                if (!snapshot?.activeFileAbsolutePath) return;
+                this.getTargetTerminalView()?.sendActiveFilePathToTerminal(snapshot.activeFileAbsolutePath);
+            }
+        });
+
+        this.addCommand({
+            id: 'send-obsidian-context-summary-to-terminal',
+            name: 'Send Obsidian Context Summary To Terminal',
+            callback: () => {
+                const snapshot = this.contextService?.getLatestSelectionSnapshot() ?? this.contextService?.getLatestSnapshot();
+                const summary = snapshot ? this.contextService?.buildContextSummary(snapshot) : '';
+                if (!summary) return;
+                this.getTargetTerminalView()?.sendContextSummaryToTerminal(summary);
+            }
+        });
     }
 
     async onunload(): Promise<void> {
@@ -136,6 +167,16 @@ export default class XTermTerminalPlugin extends Plugin {
 
     getObsidianContextService(): ObsidianContextService | null {
         return this.contextService;
+    }
+
+    private getTargetTerminalView(): TerminalView | null {
+        const activeView = this.app.workspace.getActiveViewOfType(TerminalView);
+        if (activeView) {
+            return activeView;
+        }
+
+        const terminalLeaf = this.app.workspace.getLeavesOfType(TERMINAL_VIEW_TYPE)[0];
+        return terminalLeaf?.view instanceof TerminalView ? terminalLeaf.view : null;
     }
 
     /**

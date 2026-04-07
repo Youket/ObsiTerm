@@ -8,11 +8,52 @@
 }
 
 .xterm-terminal-container {
+	order: 1;
 	flex: 1;
 	position: relative;
 	overflow: hidden;
 	background-color: var(--background-primary);
 	border-radius: 0;
+}
+
+.xterm-terminal-statusbar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 28px;
+	order: 0;
+	flex-shrink: 0;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background:
+		linear-gradient(90deg, color-mix(in srgb, var(--background-secondary) 90%, transparent), transparent),
+		var(--background-primary);
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+	font-size: 11px;
+	line-height: 1.3;
+}
+
+.xterm-terminal-statusbar.is-agent-active {
+	color: var(--text-normal);
+}
+
+.xterm-terminal-statusbar-hint {
+	font-weight: 600;
+	color: var(--text-normal);
+	white-space: nowrap;
+}
+
+.xterm-terminal-statusbar-selection {
+	white-space: nowrap;
+	color: var(--color-accent);
+}
+
+.xterm-terminal-statusbar-context {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 /* xterm.js core styles - essential for proper display and scrolling */

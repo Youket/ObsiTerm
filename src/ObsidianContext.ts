@@ -19,6 +19,7 @@ export interface ObsidianContextSnapshot {
         ch: number;
     } | null;
     currentLine: string | null;
+    selectedLineCount: number;
 }
 
 export interface ObsidianContextRuntimePaths {
@@ -33,6 +34,8 @@ export class ObsidianContextService {
     private lastSerializedContext = '';
     private lastSelection = '';
     private lastSnapshot: ObsidianContextSnapshot | null = null;
+    private lastSelectionSnapshot: ObsidianContextSnapshot | null = null;
+    private listeners = new Set<(snapshot: ObsidianContextSnapshot) => void>();
     private static readonly UTF8_BOM = '\uFEFF';
 
     constructor(plugin: XTermTerminalPlugin) {
@@ -91,6 +94,9 @@ export class ObsidianContextService {
         const liveSnapshot = this.createSnapshotFromActiveMarkdownView();
         if (liveSnapshot) {
             this.lastSnapshot = liveSnapshot;
+            if (liveSnapshot.hasSelection) {
+                this.lastSelectionSnapshot = liveSnapshot;
+            }
             return liveSnapshot;
         }
 
@@ -101,9 +107,34 @@ export class ObsidianContextService {
         return this.createEmptySnapshot();
     }
 
+    getLatestSelectionSnapshot(): ObsidianContextSnapshot | null {
+        const liveSnapshot = this.createSnapshotFromActiveMarkdownView();
+        if (liveSnapshot) {
+            this.lastSnapshot = liveSnapshot;
+            if (liveSnapshot.hasSelection) {
+                this.lastSelectionSnapshot = liveSnapshot;
+                return liveSnapshot;
+            }
+        }
+
+        return this.lastSelectionSnapshot;
+    }
+
+    subscribe(listener: (snapshot: ObsidianContextSnapshot) => void): () => void {
+        this.listeners.add(listener);
+        const snapshot = this.getLatestSnapshot();
+        listener(snapshot);
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
+
     async captureSnapshotFromActiveMarkdownView(): Promise<void> {
         const snapshot = this.createSnapshotFromActiveMarkdownView() ?? this.lastSnapshot ?? this.createEmptySnapshot();
         this.lastSnapshot = snapshot;
+        if (snapshot.hasSelection) {
+            this.lastSelectionSnapshot = snapshot;
+        }
         await this.writeContextSnapshot(snapshot);
     }
 
@@ -131,6 +162,7 @@ export class ObsidianContextService {
             cursor: cursor ? { line: cursor.line, ch: cursor.ch } : null,
             selectionAnchor: anchor ? { line: anchor.line, ch: anchor.ch } : null,
             currentLine,
+            selectedLineCount: this.countSelectedLines(selection),
         };
     }
 
@@ -145,6 +177,7 @@ export class ObsidianContextService {
             cursor: null,
             selectionAnchor: null,
             currentLine: null,
+            selectedLineCount: 0,
         };
     }
 
@@ -164,6 +197,10 @@ export class ObsidianContextService {
 
         this.lastSerializedContext = serializedContext;
         this.lastSelection = snapshot.selection;
+        if (snapshot.hasSelection) {
+            this.lastSelectionSnapshot = snapshot;
+        }
+        this.notifyListeners(snapshot);
     }
 
     async copyContextFilePath(): Promise<void> {
@@ -174,7 +211,7 @@ export class ObsidianContextService {
     }
 
     async copyCurrentSelection(): Promise<void> {
-        const snapshot = this.getLatestSnapshot();
+        const snapshot = this.getLatestSelectionSnapshot() ?? this.getLatestSnapshot();
         if (!snapshot.selection) {
             new Notice('No selected text in the active note.', 3000);
             return;
@@ -184,6 +221,24 @@ export class ObsidianContextService {
         new Notice('Copied current note selection.', 2500);
     }
 
+    buildContextSummary(snapshot = this.getLatestSnapshot()): string {
+        const parts = [
+            `Active note: ${snapshot.activeFilePath ?? '(none)'}`,
+            `Selection lines: ${snapshot.selectedLineCount}`,
+        ];
+
+        if (snapshot.currentLine) {
+            parts.push(`Current line: ${snapshot.currentLine}`);
+        }
+
+        if (snapshot.selection) {
+            parts.push('');
+            parts.push(snapshot.selection);
+        }
+
+        return parts.join('\n');
+    }
+
     private getVaultPath(): string {
         const adapter = this.plugin.app.vault.adapter as { basePath?: string };
         return adapter.basePath ?? process.cwd();
@@ -191,5 +246,19 @@ export class ObsidianContextService {
 
     private getAbsoluteFilePath(file: TFile): string {
         return normalizePath(path.join(this.getVaultPath(), file.path));
+    }
+
+    private notifyListeners(snapshot: ObsidianContextSnapshot): void {
+        for (const listener of this.listeners) {
+            listener(snapshot);
+        }
+    }
+
+    private countSelectedLines(selection: string): number {
+        if (!selection) {
+            return 0;
+        }
+
+        return selection.split(/\r?\n/).length;
     }
 }
