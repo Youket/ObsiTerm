@@ -25,6 +25,7 @@
 - Ghostty theme compatibility plus built-in themes
 - Configurable font, font size, autocomplete trigger, shell command, and initial directory
 - Paste large text blocks or images as temporary file paths
+- Keeps the active note path and current selection synced to terminal-readable runtime files
 
 ## Installation
 
@@ -148,6 +149,35 @@ Click the `New Terminal` ribbon icon in the left sidebar.
 5. Press `Esc` to cancel
 
 The selected item is inserted as an absolute path.
+
+### Active note and selection context
+
+ObsiTerm now writes the active note context into runtime files that terminal tools can read:
+
+- `OBSITERM_CONTEXT_FILE`: JSON snapshot of the current note, cursor, and selection
+- `OBSITERM_SELECTION_FILE`: plain text file containing only the current selection
+- `OBSITERM_ACTIVE_FILE`: absolute path of the active note when a terminal tab starts
+
+The JSON file is updated while you switch notes, edit, or change the current selection in Obsidian.
+
+Typical terminal usage:
+
+```bash
+cat "$OBSITERM_CONTEXT_FILE"
+cat "$OBSITERM_SELECTION_FILE"
+```
+
+On Windows PowerShell:
+
+```powershell
+Get-Content $env:OBSITERM_CONTEXT_FILE
+Get-Content $env:OBSITERM_SELECTION_FILE
+```
+
+Command palette helpers:
+
+- `ObsiTerm: Copy Obsidian Context File Path`
+- `ObsiTerm: Copy Current Note Selection`
 
 ## Development Notes
 

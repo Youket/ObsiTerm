@@ -2,6 +2,7 @@ import { Plugin, WorkspaceLeaf } from 'obsidian';
 import { TerminalView, TERMINAL_VIEW_TYPE } from './TerminalView';
 import { TerminalSettingTab, TerminalSettings, DEFAULT_SETTINGS } from './settings';
 import type { InstalledFontFamily } from './settings';
+import { ObsidianContextService } from './ObsidianContext';
 import {
     GhosttyThemeDefinition,
     TerminalTheme,
@@ -16,12 +17,15 @@ export default class XTermTerminalPlugin extends Plugin {
     private bundledThemes: GhosttyThemeDefinition[] = [];
     private installedFonts: InstalledFontFamily[] = [];
     private installedFontsPromise: Promise<InstalledFontFamily[]> | null = null;
+    private contextService: ObsidianContextService | null = null;
 
     async onload(): Promise<void> {
         console.log('Loading xTerm Terminal plugin');
 
         // Load settings
         await this.loadSettings();
+        this.contextService = new ObsidianContextService(this);
+        await this.contextService.start();
 
         // Register the terminal view
         this.registerView(
@@ -72,11 +76,28 @@ export default class XTermTerminalPlugin extends Plugin {
                 this.showThemeSelector();
             }
         });
+
+        this.addCommand({
+            id: 'copy-obsidian-context-file-path',
+            name: 'Copy Obsidian Context File Path',
+            callback: () => {
+                void this.contextService?.copyContextFilePath();
+            }
+        });
+
+        this.addCommand({
+            id: 'copy-current-note-selection',
+            name: 'Copy Current Note Selection',
+            callback: () => {
+                void this.contextService?.copyCurrentSelection();
+            }
+        });
     }
 
     async onunload(): Promise<void> {
         console.log('Unloading xTerm Terminal plugin');
         this.app.workspace.detachLeavesOfType(TERMINAL_VIEW_TYPE);
+        this.contextService = null;
     }
 
     async loadSettings(): Promise<void> {
@@ -111,6 +132,10 @@ export default class XTermTerminalPlugin extends Plugin {
 
     async saveSettings(): Promise<void> {
         await this.saveData(this.settings);
+    }
+
+    getObsidianContextService(): ObsidianContextService | null {
+        return this.contextService;
     }
 
     /**

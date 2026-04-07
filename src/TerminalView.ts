@@ -113,6 +113,10 @@ export class TerminalView extends ItemView {
             this.requestTerminalRefresh();
         });
 
+        this.registerDomEvent(this.terminalContainer, 'mousedown', () => {
+            void this.plugin.getObsidianContextService()?.captureSnapshotFromActiveMarkdownView();
+        }, { capture: true });
+
         // Initialize autocomplete
         this.autocomplete = new AutocompleteManager(
             this.scanner,
@@ -156,6 +160,8 @@ export class TerminalView extends ItemView {
         const ptyHelperPath = this.getPtyHelperPath();
         const userShell = this.getDefaultShell();
         const workingDirectory = this.getInitialWorkingDirectory();
+        const contextRuntimePaths = this.plugin.getObsidianContextService()?.getRuntimePaths();
+        const latestContext = this.plugin.getObsidianContextService()?.getLatestSnapshot();
         this.shellDisplayName = userShell;
 
         try {
@@ -173,6 +179,10 @@ export class TerminalView extends ItemView {
                     TERM: 'xterm-256color',
                     LANG: process.env.LANG || 'en_US.UTF-8',
                     OBSITERM_INITIAL_CWD: workingDirectory,
+                    OBSITERM_CONTEXT_FILE: contextRuntimePaths?.contextFile ?? '',
+                    OBSITERM_SELECTION_FILE: contextRuntimePaths?.selectionFile ?? '',
+                    OBSITERM_ACTIVE_FILE: latestContext?.activeFileAbsolutePath ?? '',
+                    OBSITERM_ACTIVE_FILE_RELATIVE: latestContext?.activeFilePath ?? '',
                     XTERM_INITIAL_COLS: String(this.terminal?.cols ?? 0),
                     XTERM_INITIAL_ROWS: String(this.terminal?.rows ?? 0),
                 },
@@ -243,11 +253,13 @@ export class TerminalView extends ItemView {
         }
 
         if (process.platform === 'win32') {
+            const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows';
             const preferredShells = [
                 process.env.OBSITERM_SHELL,
-                process.env.COMSPEC,
                 'pwsh.exe',
                 'powershell.exe',
+                path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+                process.env.COMSPEC,
                 'cmd.exe'
             ];
 
@@ -293,8 +305,17 @@ export class TerminalView extends ItemView {
     private writeLaunchBanner(shellPath: string, workingDirectory: string): void {
         const shellName = path.basename(shellPath);
         const trigger = this.getAutocompleteTrigger();
+        const contextRuntimePaths = this.plugin.getObsidianContextService()?.getRuntimePaths();
+        const latestContext = this.plugin.getObsidianContextService()?.getLatestSnapshot();
         this.terminal?.writeln(`\x1b[90m[ObsiTerm] shell: ${shellName} | path trigger: ${trigger}\x1b[0m`);
         this.terminal?.writeln(`\x1b[90m[ObsiTerm] cwd: ${workingDirectory}\x1b[0m`);
+        if (latestContext?.activeFilePath) {
+            this.terminal?.writeln(`\x1b[90m[ObsiTerm] active note: ${latestContext.activeFilePath}\x1b[0m`);
+        }
+        if (contextRuntimePaths) {
+            this.terminal?.writeln(`\x1b[90m[ObsiTerm] context json: ${contextRuntimePaths.contextFile}\x1b[0m`);
+            this.terminal?.writeln(`\x1b[90m[ObsiTerm] selection txt: ${contextRuntimePaths.selectionFile}\x1b[0m`);
+        }
         this.terminal?.writeln('\x1b[90mUse @ path autocomplete, or paste an image to insert a temp file path.\x1b[0m');
     }
 
