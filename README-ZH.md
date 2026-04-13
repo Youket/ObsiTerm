@@ -254,6 +254,8 @@ MCP 配置示例：
 仓库里还提供了一个可直接修改的示例文件：
 
 - [examples/claude-code-obsiterm-mcp.json](/E:/Development/Github/ObsiTerm/examples/claude-code-obsiterm-mcp.json)
+- [.claude/settings.example.json](/E:/Development/Github/ObsiTerm/.claude/settings.example.json)
+- [.claude/README.md](/E:/Development/Github/ObsiTerm/.claude/README.md)
 
 另一台机器上接入 Claude Code 的常见步骤：
 
@@ -267,6 +269,7 @@ MCP 配置示例：
 
 - 插件 release 会带上 MCP server 脚本，但 Claude 侧的 MCP 注册仍然是可选、且机器本地的步骤
 - 如果不配置 Claude MCP，用户依然可以使用按钮、命令、运行时文件、HTTP bridge 和 CLI
+- 如果你会在多台机器之间同步 vault 或项目，建议把模板放在 `.claude/` 中随仓库同步，只在本机修改实际 vault 绝对路径
 
 ### 命令面板与状态栏
 
