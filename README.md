@@ -289,6 +289,7 @@ A ready-to-edit example file is also included in this repository:
 - [examples/claude-code-obsiterm-mcp.json](/E:/Development/Github/ObsiTerm/examples/claude-code-obsiterm-mcp.json)
 - [.claude/settings.example.json](/E:/Development/Github/ObsiTerm/.claude/settings.example.json)
 - [.claude/README.md](/E:/Development/Github/ObsiTerm/.claude/README.md)
+- [AGENT-MCP-SETUP.md](/E:/Development/Github/ObsiTerm/AGENT-MCP-SETUP.md)
 
 Typical Claude Code setup on another machine:
 
@@ -303,6 +304,7 @@ Important:
 - the plugin ships the MCP server file, but the Claude-side MCP registration is still optional and machine-local
 - without Claude MCP setup, users can still use the built-in buttons, commands, runtime files, HTTP bridge, and CLI wrapper
 - if you sync your vault or project across machines, prefer keeping a project-level template in `.claude/` and editing only the machine-specific vault path locally
+- if you want an agent-oriented setup guide for Claude Code, Codex, or Gemini CLI, use `AGENT-MCP-SETUP.md`
 
 Command palette helpers:
 

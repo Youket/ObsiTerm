@@ -64,19 +64,19 @@ export class ObsidianContextService {
 
         this.plugin.registerEvent(
             this.plugin.app.workspace.on('active-leaf-change', () => {
-                void this.writeContextSnapshot();
+                void this.captureSnapshotFromActiveMarkdownView();
             })
         );
 
         this.plugin.registerEvent(
             this.plugin.app.workspace.on('file-open', () => {
-                void this.writeContextSnapshot();
+                void this.captureSnapshotFromActiveMarkdownView();
             })
         );
 
         this.plugin.registerEvent(
             this.plugin.app.workspace.on('editor-change', () => {
-                void this.writeContextSnapshot();
+                void this.captureSnapshotFromActiveMarkdownView();
             })
         );
 
@@ -163,7 +163,7 @@ export class ObsidianContextService {
 
     private createSnapshotFromActiveMarkdownView(): ObsidianContextSnapshot | null {
         const vaultPath = this.getVaultPath();
-        const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+        const view = this.getPreferredMarkdownView();
         if (!view) {
             return null;
         }
@@ -187,6 +187,26 @@ export class ObsidianContextService {
             currentLine,
             selectedLineCount: this.countSelectedLines(selection),
         };
+    }
+
+    private getPreferredMarkdownView(): MarkdownView | null {
+        const activeView = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+        if (activeView) {
+            return activeView;
+        }
+
+        const mostRecentLeaf = this.plugin.app.workspace.getMostRecentLeaf();
+        if (mostRecentLeaf?.view instanceof MarkdownView) {
+            return mostRecentLeaf.view;
+        }
+
+        for (const leaf of this.plugin.app.workspace.getLeavesOfType('markdown')) {
+            if (leaf.view instanceof MarkdownView) {
+                return leaf.view;
+            }
+        }
+
+        return null;
     }
 
     private createEmptySnapshot(): ObsidianContextSnapshot {
